@@ -50,6 +50,16 @@ def receive_notification(*args, **kwargs):
     # 1.Extract batch_id from kwargs
     batch_id = kwargs['batch_id']
 
+    # 2. Call the fetch_batch method to get the batch details
+    fetch_data_instance = FetchData()
+
+    # 3. fetch the batch details
+    batch_details = fetch_data_instance.fetch_batch_details(batch_id)
+
+    # print(batch_details)
+
+    
+
     return {'status': True, 'message': "Notification received"}
 
 
