@@ -58,8 +58,39 @@ def receive_notification(*args, **kwargs):
 
     # print(batch_details)
 
-    
+    # 4.Save the batch detail to the database
+    save_batch_to_database(batch_details)
 
     return {'status': True, 'message': "Notification received"}
+
+
+def save_batch_to_database(batch_data):
+    '''
+    Save the batch data into the database after fetching it from the API.
+    '''
+    try:
+
+        for batch in batch_data:
+            # Create a new document instance of the Batch Detail DocType
+            batch_doc = frappe.get_doc({
+                'doctype': 'Batch Detail',  # Replace with your actual DocType name
+                'batch_id': batch.get('id'),
+                'master_id': batch.get('master_id'),
+                'item': batch.get('Item'),
+                'weight': batch.get('Weight'),
+                'user': batch.get('user'),
+                'collections': batch.get('Collections')
+            })
+
+            # Insert the document into the database
+            batch_doc.insert()
+
+        # Commit changes to the database
+        frappe.db.commit()  
+
+        print("Batch details saved successfully.")
+        
+    except Exception as e:
+        print(f"Error saving batch details: {str(e)}")
 
 
