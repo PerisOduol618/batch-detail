@@ -46,23 +46,34 @@ def receive_notification(*args, **kwargs):
     Method that receives a notification
     '''
     print(kwargs)
+    try:
 
-    # 1.Extract batch_id from kwargs
-    batch_id = kwargs['batch_id']
+        # 1.Extract batch_id from kwargs
+        batch_id = kwargs['batch_id']
+        if not batch_id:
+                return {'status': False, 'message': "Batch ID is required"}
 
-    # 2. Call the fetch_batch method to get the batch details
-    fetch_data_instance = FetchData()
+        # 2. Call the fetch_batch method to get the batch details
+        fetch_data_instance = FetchData()
 
-    # 3. fetch the batch details
-    batch_details = fetch_data_instance.fetch_batch_details(batch_id)
+        # 3. fetch the batch details
+        batch_details = fetch_data_instance.fetch_batch_details(batch_id)
 
-    # print(batch_details)
+        # Check if data was successfully fetched
+        if 'error' in batch_details:
+            return {'status': False, 'message': batch_details['error']}
 
-    # 4.Save the batch detail to the database
-    save_batch_to_database(batch_details)
 
-    return {'status': True, 'message': "Notification received"}
+        print(batch_details)
 
+        # 4.Save the batch detail to the database
+        save_batch_to_database(batch_details)
+
+        return {'status': True, 'message': "Notification received"}
+        
+    except Exception as e:
+        frappe.log_error(message=str(e), title="Batch Notification Error")
+        return {'status': False, 'message': f"An error occurred: {str(e)}"}
 
 def save_batch_to_database(batch_data):
     '''
