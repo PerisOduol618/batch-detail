@@ -29,16 +29,20 @@ class FetchData:
         # Return the response object
         return response
     
-    # Method to get data from the API
+    # Method to get data from the API using batch id
     def fetch_batch_details(self, batch_id):
         url = f"{self.base_url}{self.batch_details_uri}{batch_id}"
 
         response = requests.get(url)
 
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            # If the API returns a single object, wrap it in a list
+            if isinstance(data, dict):
+                data = [data]
+            return data
         else:
-            return {"error": "Unable to fetch batch details"}
+            return {"error": f"Unable to fetch batch details (status code: {response.status_code})"}
 
 @frappe.whitelist(allow_guest=True)
 def receive_notification(*args, **kwargs):
@@ -70,7 +74,7 @@ def receive_notification(*args, **kwargs):
         save_batch_to_database(batch_details)
 
         return {'status': True, 'message': "Notification received"}
-        
+
     except Exception as e:
         frappe.log_error(message=str(e), title="Batch Notification Error")
         return {'status': False, 'message': f"An error occurred: {str(e)}"}
@@ -92,7 +96,8 @@ def save_batch_to_database(batch_data):
                 'user': batch.get('user'),
                 'collections': batch.get('Collections')
             })
-
+                     
+                     
             # Insert the document into the database
             batch_doc.insert()
 
