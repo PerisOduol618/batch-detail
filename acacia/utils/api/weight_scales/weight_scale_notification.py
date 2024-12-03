@@ -1,4 +1,5 @@
-import frappe, requests
+import frappe
+import requests
 
 class FetchData:
     '''
@@ -8,11 +9,9 @@ class FetchData:
     def __init__(self):
         self.base_url = 'http://65.21.156.159'
         self.batch_details_uri = '/api/accounting/batchdetails/'
-        self.auth_token = f"{api_key}:{api_secret}"
 
     def get_request(self, url, headers=None):
         std_headers = {
-            "Authorization": f"token {self.auth_token}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
@@ -39,10 +38,10 @@ class FetchData:
                     grouped_data[master_id] = {
                         'master_id': master_id,
                         'batch_id': item.get('id'),
-                        'sacks': []
+                        'batch_items': []
                     }
-                grouped_data[master_id]['sacks'].append({
-                    'sack_id': item.get('id'),
+                grouped_data[master_id]['batch_items'].append({
+                    'item_id': item.get('id'),
                     'item': item.get('Item'),
                     'weight': item.get('Weight'),
                     'user': item.get('user'),
@@ -64,6 +63,9 @@ def receive_notification(*args, **kwargs):
     '''
     try:
         batch_id = kwargs.get('batch_id')
+        print(batch_id)
+
+       
         if not batch_id:
             return {'status': False, 'message': "Batch ID is required"}
 
@@ -74,77 +76,117 @@ def receive_notification(*args, **kwargs):
         if isinstance(batch_details, dict) and 'error' in batch_details:
             return {'status': False, 'message': batch_details['error']}
 
-        # Save batch details to the database
-        save_batch_to_database(batch_details)
+        # Save batch and batch items to the database
+        save_batch_and_items(batch_details)
 
-        return {'status': True, 'message': "Batch details saved successfully."}
+        return {'status': True, 'message': "Batch details and items saved successfully."}
 
     except Exception as e:
         frappe.log_error(message=str(e), title="Batch Notification Error")
         return {'status': False, 'message': f"An error occurred: {str(e)}"}
 
-def save_batch_to_database(batch_data):
+def save_batch_and_items(batch_data):
     '''
-    Save the batch data into the database after fetching it from the API.
+    Save the batch and its batch items into the database.
     '''
     try:
         for batch in batch_data:
-            # Fetch or create the parent batch document
+            # Get or create the parent batch document
             batch_doc = get_or_create_batch(batch)
-            print(batch_doc)
-
-
-            # Add sacks as child rows
-            add_sacks_to_batch(batch_doc, batch.get('sacks', []))
-
+            
+            # Ensure batch_items exists and is a list
+            batch_items = batch.get('batch_items', [])
+            
+            if not batch_items:
+                raise ValueError(f"No batch items found for batch_id: {batch.get('batch_id')}")
+            
+            # Add batch items to batch
+            add_batch_items_to_batch(batch_doc, batch_items)
+        
         # Commit changes to the database
         frappe.db.commit()
-        print("Batch details and sacks saved successfully.")
-
+        print("Batch and batch items saved successfully.")
     except Exception as e:
-        frappe.log_error(message=str(e), title="Save Batch Details Error")
-        raise e 
+        frappe.log_error(message=str(e), title="Save Batch Error")
+        raise e
 
-def get_or_create_batch(batch):
+def get_or_create_batch(batch_data):
     '''
-    Fetch an existing batch or create a new one.
+    Fetch or create the parent batch document.
     '''
-    existing_batch = frappe.get_all(
-        'Batch Detail', 
-        filters={'batch_id': batch.get('batch_id')}, 
-        fields=['name']
-    )
-    if existing_batch:
-        return frappe.get_doc('Batch Detail', existing_batch[0]['name'])
-
-    batch_doc = frappe.get_doc({
-        'doctype': 'Batch Detail',
-        'batch_id': batch.get('batch_id'),
-        'master_id': batch.get('master_id')
-    })
-   
-    batch_doc.insert()
-    return batch_doc
-
-def add_sacks_to_batch(batch_doc, sacks):
-    '''
-    Add sacks to the batch's child table.
-    '''
-    for sack in sacks:
-        # To Avoid duplication: Check if sack already exists
-        existing_sack = frappe.get_all(
-            'Sack', 
-            filters={'parent': batch_doc.name, 'sack_id': sack.get('sack_id')}, 
+    try:
+        # Attempt to get the batch by batch_id
+        existing_batch = frappe.get_all(
+            'Batch',  # Parent table name
+            filters={'batch_id': batch_data.get('batch_id')},  # Filter by batch_id
             fields=['name']
         )
-        if not existing_sack:
-            sack_doc = batch_doc.append('sacks', {
-                'sack_id': sack.get('sack_id'),
-                'item': sack.get('item'),
-                'weight': sack.get('weight'),
-                'user': sack.get('user'),
-                'time': sack.get('time'),
-                'collections': sack.get('collections')
+        
+        if existing_batch:
+            # If the batch exists, return the existing Batch document
+            batch_doc = frappe.get_doc('Batch', existing_batch[0]['name'])
+            print(f"Found existing batch: {batch_doc.name}")
+        else:
+            # If no existing batch, create a new one
+            batch_doc = frappe.get_doc({
+                'doctype': 'Batch',
+                'batch_id': batch_data.get('batch_id'),
+                'master_id': batch_data.get('master_id') 
             })
-    batch_doc.save()
+            batch_doc.insert()  # Insert the new batch
+            print(f"Created new batch: {batch_doc.name}")
+        
+        return batch_doc
+    except Exception as e:
+        frappe.log_error(message=str(e), title="Error fetching or creating batch")
+        raise e
 
+
+
+def add_batch_items_to_batch(batch_doc, batch_items):
+    """
+    Add batch items to the batch's batch_details child table only if not already added.
+    Prevent duplicate batch saves or creation.
+    """
+    try:
+        # Check if batch already exists
+        if not batch_doc:
+            raise ValueError("Batch document is missing. Cannot proceed.")
+
+        # Fetch existing items in the batch
+        existing_batch_items = batch_doc.get('batch_details', [])
+        existing_item_ids = {item.item_id for item in existing_batch_items}
+
+        # Filter out items that already exist in the batch
+        new_items = [
+            item for item in batch_items
+            if item['item_id'] not in existing_item_ids
+        ]
+
+        if not new_items:
+            print(f"Batch {batch_doc.batch_id} already has all items. No new items to add.")
+            return
+
+        # Add new items to the batch_details table
+        for item in new_items:
+            batch_item = {
+                'item_id': item.get('item_id'),
+                'item': item.get('item'),
+                'weight': item.get('weight'),
+                'user': item.get('user'),
+                'time': item.get('time'),
+                'collections': item.get('collections')
+            }
+            batch_doc.append('batch_details', batch_item)
+            print(f"Added batch item: {batch_item['item_id']} to batch {batch_doc.batch_id}")
+
+        # Save the batch document only if new items were added
+        if new_items:
+            batch_doc.save()
+            print(f"Batch {batch_doc.batch_id} saved with {len(new_items)} new items.")
+        else:
+            print(f"No new items added to batch {batch_doc.batch_id}. Skip saving.")
+
+    except Exception as e:
+        frappe.log_error(message=str(e), title="Error adding batch items")
+        raise e
