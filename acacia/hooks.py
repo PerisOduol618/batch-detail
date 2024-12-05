@@ -5,6 +5,12 @@ app_description = "Acacia Weight Scale Integration"
 app_email = "oduolpepe618@gmail.com"
 app_license = "MIT"
 
+# override_whitelisted_methods = {
+#     "acacia.utils.apis.weight_scales.receive_notification": "acacia.utils.apis.weight_scales.weight_scale_notification.receive_notification"
+# }
+
+
+
 # Includes in <head>
 # ------------------
 
